@@ -1,0 +1,103 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+name: Sync Upstream OpenTelemetry Demo
+
+on:
+  schedule:
+    - cron: "0 10 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-otel-demo
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      BRANCH_NAME: chore/sync-upstream-otel-demo
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out fork
+        uses: actions/checkout@v6.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Merge upstream and refresh Splunk assets
+        id: sync
+        run: |
+          set -euo pipefail
+
+          base_sha="$(git rev-parse HEAD)"
+
+          git checkout -B "${BRANCH_NAME}"
+          git remote add upstream https://github.com/open-telemetry/opentelemetry-demo.git
+          git fetch upstream main
+          git merge --no-edit upstream/main
+
+          ./splunk/update-demos.sh
+
+          if ! git diff --quiet; then
+            git add README.md docker-compose.yml kubernetes/opentelemetry-demo.yaml splunk/docker-compose.yml splunk/opentelemetry-demo.yaml
+            git commit -m "chore: refresh Splunk demo assets"
+          fi
+
+          if [ "$(git rev-parse HEAD)" = "${base_sha}" ]; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+          {
+            echo "upstream_sha=$(git rev-parse upstream/main)"
+            echo "branch_name=${BRANCH_NAME}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Push sync branch
+        if: steps.sync.outputs.changed == 'true'
+        run: git push --force-with-lease origin "${BRANCH_NAME}"
+
+      - name: Open or update pull request
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+
+          body_file="$(mktemp)"
+          cat > "${body_file}" <<EOF
+          This PR syncs this fork with open-telemetry/opentelemetry-demo@${{ steps.sync.outputs.upstream_sha }}.
+
+          The workflow also ran splunk/update-demos.sh so the Splunk Docker Compose and Kubernetes manifests are regenerated from the upstream demo files.
+
+          Review focus:
+          - upstream merge conflicts or behavior changes
+          - generated Splunk assets under splunk/
+          - README, docker-compose.yml, and kubernetes/opentelemetry-demo.yaml changes from upstream
+          EOF
+
+          if gh pr view "${BRANCH_NAME}" --json number >/dev/null 2>&1; then
+            gh pr edit "${BRANCH_NAME}" \
+              --title "chore: sync upstream OpenTelemetry demo" \
+              --body-file "${body_file}"
+          else
+            gh pr create \
+              --base main \
+              --head "${BRANCH_NAME}" \
+              --title "chore: sync upstream OpenTelemetry demo" \
+              --body-file "${body_file}"
+          fi

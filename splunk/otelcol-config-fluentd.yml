@@ -150,7 +150,7 @@ exporters:
     endpoint: "${SPLUNK_HEC_URL}/services/collector"
     source: "otel"
     sourcetype: "otel"
-    index: "astronomyshop"
+    index: "${SPLUNK_LOG_INDEX}"
     profiling_data_enabled: false
     tls:
       insecure_skip_verify: false

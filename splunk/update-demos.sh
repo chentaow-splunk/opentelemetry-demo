@@ -14,6 +14,14 @@ set -euo pipefail
 # Set default paths if environment variables are not set
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 
+function sed_in_place {
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
 function update_root_readme {
     ROOT_README_PATH=${ROOT_README_PATH:-"$SCRIPT_DIR/../README.md"}
 
@@ -31,7 +39,7 @@ folder.  See \[this document\](\.\/splunk\/README.md) for details.\
 \
 ## Quick start'
 
-    sed -i '' "s/${SEARCH_VAL}/${REPLACE_VAL}/g" "$ROOT_README_PATH"
+    sed_in_place "s/${SEARCH_VAL}/${REPLACE_VAL}/g" "$ROOT_README_PATH"
 
     echo "Completed updating the root README.md file for the OpenTelemetry demo app!"
 }
@@ -70,6 +78,7 @@ function update_otel_demo_docker {
     yq eval -i '.services.otel-collector.environment += [ "SPLUNK_REALM=${SPLUNK_REALM}" ]' "$SPLUNK_DOCKER_COMPOSE_PATH"
     yq eval -i '.services.otel-collector.environment += [ "SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}" ]' "$SPLUNK_DOCKER_COMPOSE_PATH"
     yq eval -i '.services.otel-collector.environment += [ "SPLUNK_HEC_URL=${SPLUNK_HEC_URL}" ]' "$SPLUNK_DOCKER_COMPOSE_PATH"
+    yq eval -i '.services.otel-collector.environment += [ "SPLUNK_LOG_INDEX=${SPLUNK_LOG_INDEX:-astronomyshop}" ]' "$SPLUNK_DOCKER_COMPOSE_PATH"
     yq eval -i '.services.otel-collector.environment += [ "SPLUNK_MEMORY_TOTAL_MIB=${SPLUNK_MEMORY_TOTAL_MIB}" ]' "$SPLUNK_DOCKER_COMPOSE_PATH"
 
     # update the command used to launch the collector to point to the Splunk-specific config
@@ -178,7 +187,7 @@ function update_otel_demo_k8s {
                 fieldRef: \
                   fieldPath: status.hostIP'
 
-    sed -i '' "s/${SEARCH_VAL}/${REPLACE_VAL}/g" "$SPLUNK_K8S_PATH"
+    sed_in_place "s/${SEARCH_VAL}/${REPLACE_VAL}/g" "$SPLUNK_K8S_PATH"
 
     # append the deployment.environment resource attribute
     # - name: OTEL_RESOURCE_ATTRIBUTES
